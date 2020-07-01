@@ -1,0 +1,5 @@
+#import serial
+#import sys
+
+tx = serial.Serial(sys.argv[1],baudrate=115200)
+tx.close()
