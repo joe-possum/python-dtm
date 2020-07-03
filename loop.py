@@ -2,9 +2,6 @@ import serial
 import sys
 import time
 
-cmdtx = b'\x20\x04\x0e\x00\x00\xff\x00\x01'
-cmdrx = b'\x20\x02\x0e\x01\x00\x01'
-cmdend = b'\x20\x00\x0e\x02'
 verbose = 0
 
 def render(b) :
@@ -65,11 +62,11 @@ if len(b) :
 b = rx.read_all()
 if len(b) :
     print("read %d bytes from rx: %s"%(len(b),render(b)))
-    
-fh = open('viterbi.data','w')
 
-for channel in range(40) :
-    
+def measure(fh, tx, rx, channel) :
+    cmdtx = b'\x20\x04\x0e\x00\x00\xff\x00\x01'
+    cmdrx = b'\x20\x02\x0e\x01\x00\x01'
+    cmdend = b'\x20\x00\x0e\x02'
     cmdtx = cmdtx[:6] + chr(channel).encode() + cmdtx[7:] 
     cmdrx = cmdrx[:4] + chr(channel).encode() + cmdrx[5:]
 
@@ -93,6 +90,15 @@ for channel in range(40) :
     
     fh.write('%d %d %d\n'%(channel,tx_count,rx_count))
 
+def sweep_channel(fh, tx, rx) :
+    for channel in range(40) :
+        measure(fh, tx, rx, channel)
+
+for index in range(3,31) :
+    fh = open('nonviterbi-%d.data'%(index),'w')
+    sweep_channel(fh,tx,rx)
+    fh.close()
+
 tx.close()
 rx.close()
-fh.close()
+
