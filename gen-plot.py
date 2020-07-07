@@ -19,6 +19,14 @@ def set_legend(arg) :
     global parameters
     parameters['stats-file'] = arg
 
+def set_title(arg) :
+    global parameters
+    parameters['title'] = arg
+
+def set_upper_per(arg) :
+    global parameters
+    parameters['upper-per'] = arg
+
 def set_force_overwrite(arg) :
     global parameters
     parameters['force-overwrite'] = True
@@ -36,13 +44,14 @@ def avoid_clobber(namelist) :
     print('Use -f to force overwrite')
     quit()
 
-msg_help = 'Usage: gen-plot [ -h ] [ -f ] [ -g gnuplot-file ] [ -s stats-file ] [ -l legend ] datafile [ datafile [ ... ] ]'
+msg_help = 'Usage: gen-plot [ -h ] [ -f ] [ -g gnuplot-file ] [ -s stats-file ] [ -l legend ] [ -u upper-per ] datafile [ datafile [ ... ] ]'
 parameters = {
     'gnuplot-name':'',
     'stats-name':'',
     'legend':'Errorbar: +/- 1 std dev ($# runs)',
     'force-overwrite':False,
-    'option-string':'hfg:s:l:'
+    'upper-per':'*',
+    'option-string':'hfg:s:l:t:u:'
 }
 
 option_bindings = {
@@ -50,6 +59,8 @@ option_bindings = {
     '-g' : set_gnuplot_file,
     '-s' : set_stats_file,
     '-l' : set_legend,
+    '-t' : set_title,
+    '-u' : set_upper_per,
     '-f' : set_force_overwrite
 }
 
@@ -112,8 +123,9 @@ for i in range(file_count) :
 
 mean = data.mean(axis=0)
 std = data.std(axis=0)
-#print(100*mean,100*std)
-
+per = 100*mean.mean()
+parameters['title'] = parameters['title'].replace('$#','%.2f'%(per))
+print('%.1f'%(per))
 fh = open(parameters['stats-file'],'w')
 for i in range(40) :
     fh.write("%d %f %f\n"%(i,100*mean[i],100*std[i]))
@@ -122,6 +134,7 @@ fh.close()
 fh = open(parameters['gnuplot-file'],'w')
 fh.write('set xlabel "channel"\n')
 fh.write('set ylabel "PER (percent)"\n')
-fh.write('plot [-1:40][0:*] "%s" with error title "%s"'%(parameters['stats-file'],parameters['legend']) + pstr + '\n')
+fh.write('set title "%s"\n'%(parameters['title']))
+fh.write('plot [-1:40][0:%s] "%s" with error title "%s"'%(parameters['upper-per'],parameters['stats-file'],parameters['legend']) + pstr + '\n')
 fh.close()
 os.system('gnuplot -persist %s'%(parameters['gnuplot-file']))
