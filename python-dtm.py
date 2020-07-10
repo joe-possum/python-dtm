@@ -4,10 +4,11 @@ import sys
 import time
 import getopt
 
-verbose = 1
+verbose = 0
 emulate = 0
 
 packet_types = { 'prbs9':0 }
+phys = { '1m':1, '2m':2, '125k':3, '500k':4 }
 
 def help_quit(arg) :
     print(msg_help)
@@ -28,10 +29,16 @@ def set_iterations(arg) :
 def set_packet_type(arg) :
     global parameters
     if None == packet_types.get(arg) :
-        allowed = ''
         print('Invalid packet-type specified.  Recognized packet-types: '%(' '.join(packet_types.keys())))
         help_quit()
     parameters['packet-type'] = arg
+    
+def set_phy(arg) :
+    global parameters
+    if None == phys.get(arg) :
+        print('Invalid phy specified.  Recognized phys: '%(' '.join(phys.keys())))
+        help_quit()
+    parameters['phy'] = arg
     
 def set_duration(arg) :
     global parameters
@@ -46,7 +53,7 @@ def set_out_filename(arg) :
     print("set-out-filename: %s"%(arg))
     parameters['out-filename'] = arg
 
-msg_help = 'Usage: python-dtm [ -h ] [ -l <lower-channel> ] [ -u <upper-channel> ] [ -i <iterations> ] [ -p <packet-type> ] [ -d <duration-seconds> ] [ -b <byte-count> ] -o <out-filename> <tx-port> [ <rx-port> [ <rx-port> [ ... ] ] ]'
+msg_help = 'Usage: python-dtm [ -h ] [ -l <lower-channel> ] [ -u <upper-channel> ] [ -i <iterations> ] [ -p <packet-type> ] [ -d <duration-seconds> ] [ -b <byte-count> ] [ -y <phy> ] -o <out-filename> <tx-port> [ <rx-port> [ <rx-port> [ ... ] ] ]'
 parameters = {
     'lower-channel':0,
     'upper-channel':39,
@@ -54,8 +61,9 @@ parameters = {
     'packet-type':'prbs9',
     'duration-seconds':1,
     'byte-count':255,
+    'phy':'1m',
     'out-filename':'asd',
-    'option-string':'hl:u:i:p:d:b:o:'
+    'option-string':'hl:u:i:p:y:d:b:o:'
 }
 
 option_bindings = {
@@ -66,6 +74,7 @@ option_bindings = {
     '-p' : set_packet_type,
     '-d' : set_duration,
     '-b' : set_byte_count,
+    '-y' : set_phy,
     '-o' : set_out_filename
 }
 
@@ -207,12 +216,18 @@ class bgapi :
     def dtm_end(self) :
         p = self.send_command(b'\x20\x00\x0e\x02')
         return (p[-1] << 8) | p[-2]
-    def wait(self) :
-        if len(self.events) :
-            rc = self.events[0]
-            events = self.events[1:]
-            return rc
-        return self.get_packet()
+    def wait_dtm_completed(self) :
+        while True :
+            if len(self.events) :
+                if verbose : print('wait_dtm_completed(%s): fetching from backlog'%(self.port))
+                rc = self.events[0]
+                events = self.events[1:]
+            else :
+                if verbose : print('wait_dtm_completed(%s): fetching from get_packet'%(self.port))
+                rc = self.get_packet()
+            if b'\xa0\x04\x0e\x00' == rc[0:4] :
+                if verbose : print('wait_dtm_completed(%s): match completed, result: %04x, count: %04x'%(self.port,rc[4]+(rc[5]<<8),rc[6]+(rc[7]<<8)))
+                return rc
     def close(self) :
         self.fh.close()
 
@@ -246,21 +261,26 @@ def measure(fh, tx, rx, channel) :
     rx_count = []
     for r in rx :
         if r.dtm_rx(channel,1) : raise RuntimeError(r)
-        r.wait()
+        r.wait_dtm_completed()
 
-    if tx.dtm_tx(0,channel,255,1) : raise RuntimeError(tx)
-    tx.wait()
+    if tx.dtm_tx(
+            packet_types[parameters['packet-type']],
+            parameters['byte-count'],
+            channel,
+            phys[parameters['phy']]
+            ) : raise RuntimeError(tx)
+    tx.wait_dtm_completed()
     
     if verbose : print("sleeping")
     time.sleep(parameters['duration-seconds'])
     
     if tx.dtm_end() : raise RuntimeError(tx)
-    evt = tx.wait()
+    evt = tx.wait_dtm_completed()
     tx_count = evt[6] + (evt[7] << 8)
     
     for i in range(len(rx)) :
         rx[i].dtm_end()
-        evt = rx[i].wait()
+        evt = rx[i].wait_dtm_completed()
         rx_count.append(evt[6] + (evt[7] << 8))
         
     ps = "channel: %d, sent: %d, PER:"%(channel,tx_count)
