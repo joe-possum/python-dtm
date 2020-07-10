@@ -1,3 +1,4 @@
+# 7/9/2020
 import serial
 import sys
 import time
@@ -47,21 +48,19 @@ def send(s,cmd) :
     return h + d
         
 tx = serial.Serial(sys.argv[1],baudrate=115200)
-rx = serial.Serial(sys.argv[2],baudrate=115200)
-channel = 0
-if len(sys.argv) > 3 :
-    channel = int(sys.argv[3])
-
 if verbose : print("tx:",tx)
-if verbose : print("rx:",rx)
-
 b = tx.read_all()
 if len(b) :
     print("read %d bytes from tx: %s"%(len(b),render(b)))
 
-b = rx.read_all()
-if len(b) :
-    print("read %d bytes from rx: %s"%(len(b),render(b)))
+rx = []
+for cp in sys.argv[2:] :
+    r = serial.Serial(cp,baudrate=115200)
+    rx.append(r)
+    b = r.read_all()
+    if len(b) :
+        print("read %d bytes from rx: %s"%(len(b),render(b)))
+if verbose : print("rx:",rx)
 
 def measure(fh, tx, rx, channel) :
     cmdtx = b'\x20\x04\x0e\x00\x00\xff\x00\x01'
@@ -70,35 +69,45 @@ def measure(fh, tx, rx, channel) :
     cmdtx = cmdtx[:6] + chr(channel).encode() + cmdtx[7:] 
     cmdrx = cmdrx[:4] + chr(channel).encode() + cmdrx[5:]
 
+    rx_count = []
+    for r in rx :
+        send(r,cmdrx)
+        wait(r)
+    
     send(tx,cmdtx)
     wait(tx)
-    send(rx,cmdrx)
-    wait(rx)
-    
+
     if verbose : print("sleeping")
-    time.sleep(120)
+    time.sleep(1)
     
     send(tx,cmdend)
     evt = wait(tx)
     tx_count = evt[6] + (evt[7] << 8)
     
-    send(rx,cmdend)
-    evt = wait(rx)
-    rx_count = evt[6] + (evt[7] << 8)
+    for i in range(len(rx)) :
+        send(rx[i],cmdend)
+        evt = wait(rx[i])
+        rx_count.append(evt[6] + (evt[7] << 8))
         
-    print("channel: %d, sent: %d, received: %d, PER: %f"%(channel,tx_count,rx_count,100*(1-rx_count/tx_count)))
+    ps = "channel: %d, sent: %d, PER:"%(channel,tx_count)
     
-    fh.write('%d %d %d\n'%(channel,tx_count,rx_count))
-
+    fh.write('%d %d'%(channel,tx_count))
+    for i in range(len(rx)) :
+        fh.write(' %d'%(rx_count[i]))
+        ps += ' %.1f'%(100-100*rx_count[i]/tx_count)
+    fh.write('\n')
+    print(ps)
+    
 def sweep_channel(fh, tx, rx) :
     for channel in range(40) :
         measure(fh, tx, rx, channel)
 
-for index in range(3,31) :
-    fh = open('nonviterbi-%d.data'%(index),'w')
+for index in range(1,41) :
+    fh = open('2v13p6-4303a-4104a-%d.data'%(index),'w')
     sweep_channel(fh,tx,rx)
     fh.close()
 
 tx.close()
-rx.close()
+for r in rx :
+    r.close()
 
